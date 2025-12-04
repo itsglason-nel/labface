@@ -141,6 +141,53 @@ router.post('/login', async (req, res) => {
     }
 });
 
+// Get Current User from Token
+router.get('/me', async (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+    if (!token) {
+        return res.status(401).json({ message: 'Access token required' });
+    }
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [decoded.id]);
+
+        if (users.length === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const user = users[0];
+        res.json({
+            id: user.id,
+            userId: user.user_id,
+            role: user.role,
+            firstName: user.first_name,
+            middleName: user.middle_name,
+            lastName: user.last_name,
+            email: user.email,
+            course: user.course,
+            yearLevel: user.year_level,
+            phone: user.phone,
+            studentId: user.role === 'student' ? user.user_id : undefined,
+            professorId: user.role === 'professor' ? user.user_id : undefined,
+            profilePicture: user.profile_picture,
+            department: user.department
+        });
+    } catch (err) {
+        if (err.name === 'JsonWebTokenError') {
+            return res.status(403).json({ message: 'Invalid token' });
+        }
+        if (err.name === 'TokenExpiredError') {
+            return res.status(403).json({ message: 'Token expired' });
+        }
+        console.error('Get Current User Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 // Check Availability
 router.get('/check-availability', async (req, res) => {
     const { field, value } = req.query;
