@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+insightface
+opencv-python-headless
+mysql-connector-python
+numpy
+requests
+onnxruntime
+scipy
+python-multipart
