@@ -1,6 +1,14 @@
-version: '3.8'
-
 services:
+  # Cloudflare Tunnel for exposing the app
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    networks:
+      - labface-network
+
   # Nginx for routing (HTTP only - Cloudflare handles SSL)
   nginx:
     build: ./nginx
@@ -19,8 +27,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=https://labface.site
     environment:
-      - NEXT_PUBLIC_API_URL=https://labface.site/api
+      - NEXT_PUBLIC_API_URL=https://labface.site
       - NODE_ENV=production
     depends_on:
       - backend

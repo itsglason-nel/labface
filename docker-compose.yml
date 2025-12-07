@@ -10,7 +10,7 @@ services:
       - /app/node_modules
       - /app/.next
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:5001
+      - NEXT_PUBLIC_API_URL=
       - WATCHPACK_POLLING=true
       - NODE_ENV=development
     command: npm run dev
@@ -84,6 +84,14 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c " /usr/bin/mc config host add myminio http://minio:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}; /usr/bin/mc mb myminio/labface-profiles; /usr/bin/mc mb myminio/labface-snapshots; /usr/bin/mc anonymous set public myminio/labface-profiles; /usr/bin/mc anonymous set public myminio/labface-snapshots; exit 0; "
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    # If TUNNEL_TOKEN is set, use it for labface.site. Otherwise fall back to quick tunnel.
+    command: tunnel --url http://frontend:3000
+    depends_on:
+      - frontend
+    restart: unless-stopped
 
 volumes:
   mariadb_data:

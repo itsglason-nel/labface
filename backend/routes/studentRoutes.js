@@ -161,4 +161,91 @@ router.get('/dashboard/:id', async (req, res) => {
     }
 });
 
+// Get Student Attendance Summary
+router.get('/attendance-summary/:id', async (req, res) => {
+    try {
+        const studentId = req.params.id;
+
+        // Get user's string ID for attendance logs
+        const [users] = await pool.query('SELECT id FROM users WHERE id = ?', [studentId]);
+        if (users.length === 0) return res.status(404).json({ message: 'Student not found' });
+
+        // Get all attendance logs
+        const [logs] = await pool.query(
+            'SELECT status FROM attendance_logs WHERE student_id = ?',
+            [studentId]
+        );
+
+        const presentCount = logs.filter(l => l.status === 'Present').length;
+        const lateCount = logs.filter(l => l.status === 'Late').length;
+        const totalSessions = logs.length;
+
+        // Get total possible sessions from enrolled classes
+        const [sessions] = await pool.query(`
+            SELECT COUNT(DISTINCT s.id) as total
+            FROM sessions s
+            JOIN enrollments e ON s.class_id = e.class_id
+            WHERE e.student_id = ?
+        `, [studentId]);
+
+        const totalPossibleSessions = sessions[0]?.total || 0;
+        const absentCount = totalPossibleSessions - totalSessions;
+
+        const attendanceRate = totalPossibleSessions > 0
+            ? ((totalSessions / totalPossibleSessions) * 100).toFixed(1)
+            : 0;
+
+        res.json({
+            presentCount,
+            lateCount,
+            absentCount,
+            totalSessions: totalPossibleSessions,
+            attendedSessions: totalSessions,
+            attendanceRate: parseFloat(attendanceRate)
+        });
+    } catch (err) {
+        console.error('Attendance summary error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get Student Recent Activity
+router.get('/recent-activity/:id', async (req, res) => {
+    try {
+        const studentId = req.params.id;
+        const limit = parseInt(req.query.limit) || 10;
+
+        const [activities] = await pool.query(`
+            SELECT 
+                al.status,
+                al.time_in,
+                al.time_out,
+                s.date,
+                s.start_time,
+                c.subject_name as className,
+                c.subject_code
+            FROM attendance_logs al
+            JOIN sessions s ON al.session_id = s.id
+            JOIN classes c ON s.class_id = c.id
+            WHERE al.student_id = ?
+            ORDER BY al.time_in DESC
+            LIMIT ?
+        `, [studentId, limit]);
+
+        const formattedActivities = activities.map(act => ({
+            className: `${act.subject_code} - ${act.className}`,
+            status: act.status,
+            date: act.date,
+            timeIn: act.time_in,
+            timeOut: act.time_out,
+            timestamp: new Date(act.time_in).toISOString()
+        }));
+
+        res.json(formattedActivities);
+    } catch (err) {
+        console.error('Recent activity error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;

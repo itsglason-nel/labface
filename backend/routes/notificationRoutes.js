@@ -24,6 +24,7 @@ router.get('/:userId', async (req, res) => {
         );
         res.json(notifications);
     } catch (err) {
+        console.error("Error fetching notifications:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -34,6 +35,7 @@ router.patch('/:id/read', async (req, res) => {
         await pool.query('UPDATE notifications SET is_read = TRUE WHERE id = ?', [req.params.id]);
         res.json({ message: 'Notification marked as read' });
     } catch (err) {
+        console.error("Error fetching notifications:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -44,6 +46,7 @@ router.patch('/user/:userId/read-all', async (req, res) => {
         await pool.query('UPDATE notifications SET is_read = TRUE WHERE user_id = ?', [req.params.userId]);
         res.json({ message: 'All notifications marked as read' });
     } catch (err) {
+        console.error("Error fetching notifications:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -58,6 +61,7 @@ router.post('/', async (req, res) => {
         );
         res.status(201).json({ message: 'Notification created' });
     } catch (err) {
+        console.error("Error fetching notifications:", err);
         res.status(500).json({ error: err.message });
     }
 });
