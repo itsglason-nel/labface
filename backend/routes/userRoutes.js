@@ -34,14 +34,6 @@ const ensureColumns = async () => {
             await pool.query("ALTER TABLE users ADD COLUMN profile_picture VARCHAR(255)");
             console.log("Added profile_picture column");
         }
-        if (!columnNames.includes('phone')) {
-            await pool.query("ALTER TABLE users ADD COLUMN phone VARCHAR(20)");
-            console.log("Added phone column");
-        }
-        if (!columnNames.includes('department')) {
-            await pool.query("ALTER TABLE users ADD COLUMN department VARCHAR(100)");
-            console.log("Added department column");
-        }
         if (!columnNames.includes('course')) {
             await pool.query("ALTER TABLE users ADD COLUMN course VARCHAR(100)");
             console.log("Added course column");
@@ -67,7 +59,20 @@ const verifyToken = (req, res, next) => {
 // Get Profile
 router.get('/profile/:id', async (req, res) => {
     try {
-        const [users] = await pool.query('SELECT id, user_id, first_name, middle_name, last_name, email, role, course, year_level, phone, profile_picture, department FROM users WHERE id = ?', [req.params.id]);
+        // Join with students and courses tables for student data
+        const [users] = await pool.query(`
+            SELECT 
+                u.id, u.user_id, u.first_name, u.middle_name, u.last_name, u.email, u.role, 
+                u.profile_picture,
+                s.year_level,
+                c.code as course,
+                c.name as course_name
+            FROM users u
+            LEFT JOIN students s ON u.id = s.user_id
+            LEFT JOIN courses c ON s.course_id = c.id
+            WHERE u.id = ?
+        `, [req.params.id]);
+
         if (users.length === 0) return res.status(404).json({ message: 'User not found' });
 
         const user = users[0];
@@ -82,13 +87,11 @@ router.get('/profile/:id', async (req, res) => {
             email: user.email,
             role: user.role,
             course: user.course,
+            courseName: user.course_name,
             yearLevel: user.year_level,
-            phone: user.phone,
             profilePicture: user.profile_picture,
-            department: user.department,
             studentId: role === 'student' ? user.user_id : undefined,
             professorId: role === 'professor' ? user.user_id : undefined,
-            // Fallback for display if role is missing or weird
             schoolId: user.user_id
         });
     } catch (err) {
@@ -98,23 +101,58 @@ router.get('/profile/:id', async (req, res) => {
 
 // Update Profile
 router.put('/profile/:id', async (req, res) => {
-    const { firstName, lastName, email, phone, course, yearLevel, department } = req.body;
+    const { firstName, lastName, email, course, yearLevel } = req.body;
     console.log(`Updating profile for user ${req.params.id}:`, req.body);
 
     try {
+        // Update users table
         await pool.query(
-            'UPDATE users SET first_name = ?, last_name = ?, email = ?, phone = ?, course = ?, year_level = ?, department = ? WHERE id = ?',
-            [
-                firstName || null,
-                lastName || null,
-                email || null,
-                phone || null,
-                course || null,
-                yearLevel || null,
-                department || null,
-                req.params.id
-            ]
+            'UPDATE users SET first_name = ?, last_name = ?, email = ? WHERE id = ?',
+            [firstName || null, lastName || null, email || null, req.params.id]
         );
+
+        // Update students table if course or yearLevel provided
+        if (course || yearLevel) {
+            // Check if user is a student
+            const [users] = await pool.query('SELECT role FROM users WHERE id = ?', [req.params.id]);
+            if (users.length > 0 && users[0].role === 'student') {
+                // Get course_id if course is provided
+                let courseId = null;
+                if (course) {
+                    const [courses] = await pool.query('SELECT id FROM courses WHERE code = ?', [course]);
+                    if (courses.length > 0) {
+                        courseId = courses[0].id;
+                    }
+                }
+
+                // Update or insert into students table
+                const [existing] = await pool.query('SELECT * FROM students WHERE user_id = ?', [req.params.id]);
+                if (existing.length > 0) {
+                    // Update existing record
+                    const updates = [];
+                    const values = [];
+                    if (courseId) {
+                        updates.push('course_id = ?');
+                        values.push(courseId);
+                    }
+                    if (yearLevel) {
+                        updates.push('year_level = ?');
+                        values.push(yearLevel);
+                    }
+                    if (updates.length > 0) {
+                        values.push(req.params.id);
+                        await pool.query(`UPDATE students SET ${updates.join(', ')} WHERE user_id = ?`, values);
+                    }
+                } else if (courseId && yearLevel) {
+                    // Insert new record
+                    await pool.query(
+                        'INSERT INTO students (user_id, course_id, year_level) VALUES (?, ?, ?)',
+                        [req.params.id, courseId, yearLevel]
+                    );
+                }
+            }
+        }
+
         res.json({ message: 'Profile updated successfully' });
     } catch (err) {
         console.error("Update Profile Error:", err);
@@ -171,9 +209,26 @@ router.post('/profile/:id/upload-face-photo', upload.single('facePhoto'), async 
         return res.status(400).json({ message: 'File and angle are required' });
     }
 
-    const photoUrl = `/uploads/profiles/${req.file.filename}`;
-
     try {
+        // Read the uploaded file and convert to base64 for validation
+        const fs = require('fs');
+        const imageBuffer = fs.readFileSync(req.file.path);
+        const base64Image = `data:${req.file.mimetype};base64,${imageBuffer.toString('base64')}`;
+
+        // Validate that the image contains a face
+        const { validateFaceInImage } = require('../utils/faceValidation');
+        const validation = await validateFaceInImage(base64Image);
+
+        if (!validation.valid) {
+            // Delete the uploaded file since it's invalid
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({
+                message: validation.error || 'No face detected in the uploaded image'
+            });
+        }
+
+        const photoUrl = `/uploads/profiles/${req.file.filename}`;
+
         // Check if photo for this angle exists
         const [existing] = await pool.query('SELECT * FROM face_photos WHERE user_id = ? AND angle = ?', [req.params.id, angle]);
 

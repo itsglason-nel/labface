@@ -6,8 +6,7 @@ services:
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
-    networks:
-      - labface-network
+    network_mode: "host"
 
   # Nginx for routing (HTTP only - Cloudflare handles SSL)
   nginx:
@@ -28,9 +27,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=https://labface.site
+        - NEXT_PUBLIC_API_URL=https://www.labface.site
     environment:
-      - NEXT_PUBLIC_API_URL=https://labface.site
+      - NEXT_PUBLIC_API_URL=https://www.labface.site
       - NODE_ENV=production
     depends_on:
       - backend
@@ -66,21 +65,19 @@ services:
       context: ./ai-service
       dockerfile: Dockerfile
     environment:
-      - DB_HOST=mariadb
+      - DB_HOST=127.0.0.1 # Use localhost since we're on host network
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
-      - MINIO_ENDPOINT=minio
+      - MINIO_ENDPOINT=127.0.0.1 # Use localhost
       - MINIO_PORT=9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_USE_SSL=false
-    depends_on:
-      - mariadb
-      - minio
+      - RTSP_URL_1=${RTSP_URL_1}
+      - RTSP_URL_2=${RTSP_URL_2}
+    network_mode: "host" # Use host network to access DVR on USB-Ethernet
     restart: unless-stopped
-    networks:
-      - labface-network
 
   mariadb:
     image: mariadb:10.6

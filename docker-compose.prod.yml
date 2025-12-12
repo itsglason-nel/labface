@@ -5,24 +5,10 @@ services:
     build: ./nginx
     ports:
       - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certbot/conf:/etc/letsencrypt:ro
-      - ./certbot/www:/var/www/certbot:ro
     depends_on:
       - frontend
       - backend
     restart: unless-stopped
-    networks:
-      - labface-network
-
-  certbot:
-    image: certbot/certbot
-    volumes:
-      - ./certbot/conf:/etc/letsencrypt
-      - ./certbot/www:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
     networks:
       - labface-network
 
@@ -31,8 +17,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
-      - NEXT_PUBLIC_API_URL=https://labface.site/api
-      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=
+      - NODE_ENV=development
+    ports:
+      - "3000:3000"
     depends_on:
       - backend
     restart: unless-stopped
@@ -55,6 +43,8 @@ services:
       - AI_SERVICE_URL=http://ai-service:8000
       - NODE_ENV=production
       - MINIO_USE_SSL=false
+    ports:
+      - "5000:5000"
     depends_on:
       - mariadb
       - minio
@@ -76,6 +66,10 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_USE_SSL=false
+      - RTSP_URL_1=${RTSP_URL_1}
+      - RTSP_URL_2=${RTSP_URL_2}
+    ports:
+      - "8000:8000"
     depends_on:
       - mariadb
       - minio
@@ -103,6 +97,9 @@ services:
       - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
       - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
     command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     volumes:
       - minio_data:/data
     restart: unless-stopped
@@ -115,6 +112,15 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c " sleep 10; /usr/bin/mc config host add myminio http://minio:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}; /usr/bin/mc mb myminio/labface-profiles; /usr/bin/mc mb myminio/labface-snapshots; /usr/bin/mc anonymous set public myminio/labface-profiles; /usr/bin/mc anonymous set public myminio/labface-snapshots; exit 0; "
+    networks:
+      - labface-network
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel run --token ${TUNNEL_TOKEN}
+    depends_on:
+      - nginx
+    restart: unless-stopped
     networks:
       - labface-network
 

@@ -9,3 +9,5 @@ requests
 onnxruntime
 scipy
 python-multipart
+rembg
+Pillow

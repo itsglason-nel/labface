@@ -22,10 +22,45 @@ pool.query(`
 router.post('/', async (req, res) => {
     const { subjectCode, subjectName, professorId, schoolYear, semester, section, schedule, course, yearLevel } = req.body;
     try {
-        const [result] = await pool.query(
-            'INSERT INTO classes (subject_code, subject_name, professor_id, school_year, semester, section, schedule_json, course, year_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [subjectCode, subjectName, professorId, schoolYear, semester, section, JSON.stringify(schedule), course || null, yearLevel || null]
+        // Get or create academic period
+        let [periods] = await pool.query(
+            'SELECT id FROM academic_periods WHERE school_year = ? AND semester = ?',
+            [schoolYear, semester]
         );
+
+        let periodId;
+        if (periods.length === 0) {
+            const [result] = await pool.query(
+                'INSERT INTO academic_periods (school_year, semester, is_active) VALUES (?, ?, TRUE)',
+                [schoolYear, semester]
+            );
+            periodId = result.insertId;
+        } else {
+            periodId = periods[0].id;
+        }
+
+        // Get course_id if course is provided
+        let courseId = null;
+        if (course) {
+            const [courses] = await pool.query('SELECT id FROM courses WHERE code = ?', [course]);
+            if (courses.length > 0) {
+                courseId = courses[0].id;
+            }
+        }
+
+        // Get Professor Primary Key (professorId is likely the user_id string)
+        const [profUsers] = await pool.query('SELECT id FROM users WHERE user_id = ?', [professorId]);
+        if (profUsers.length === 0) {
+            return res.status(404).json({ message: 'Professor not found' });
+        }
+        const professorPk = profUsers[0].id;
+
+        // Insert class with academic_period_id and course_id
+        const [result] = await pool.query(
+            'INSERT INTO classes (subject_code, subject_name, professor_id, academic_period_id, section, schedule_json, course_id, year_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [subjectCode, subjectName, professorPk, periodId, section, JSON.stringify(schedule), courseId, yearLevel || null]
+        );
+
         res.status(201).json({ message: 'Class created successfully', classId: result.insertId });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -36,13 +71,18 @@ router.post('/', async (req, res) => {
 router.get('/professor/:id', async (req, res) => {
     const { archived } = req.query;
     try {
+        // Resolve professor_id (string) to PK
+        const [profUsers] = await pool.query('SELECT id FROM users WHERE user_id = ?', [req.params.id]);
+        if (profUsers.length === 0) return res.json([]);
+        const professorPk = profUsers[0].id;
+
         let query = `
             SELECT c.*, COUNT(e.id) as student_count 
             FROM classes c 
             LEFT JOIN enrollments e ON c.id = e.class_id
             WHERE c.professor_id = ?
         `;
-        const params = [req.params.id];
+        const params = [professorPk];
 
         if (archived === 'true') {
             query += ' AND c.is_archived = 1';
